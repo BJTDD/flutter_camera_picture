@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart'; // 비디오 저장을 위한 경로 제공 패키지
 import 'package:video_player/video_player.dart'; // 녹화된 비디오 재생을 위한 패키지
 
 Future<void> main() async {
@@ -78,9 +77,8 @@ class TakeVideoScreenState extends State<TakeVideoScreen> {
 
   @override
   void initState() {
-    // 맨처음 호출
     super.initState();
-    _initializeCamera();
+    _initializeCamera(); // 카메라 초기화
   }
 
   // 카메라 초기화 메서드 _switchCamera()여기에서 호출됨
