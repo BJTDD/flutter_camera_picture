@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart'; // 비디오 저장을 위한 경로 제공 패키지
+import 'package:video_player/video_player.dart'; // 녹화된 비디오 재생을 위한 패키지
 
 Future<void> main() async {
   // 플러그인 서비스가 초기화되었는지 확인하여 `availableCameras()`가
@@ -12,9 +14,7 @@ Future<void> main() async {
   // 기기에서 사용 가능한 카메라 목록을 가져옵니다.
   final cameras = await availableCameras();
 
-  // 사용 가능한 카메라 목록에서 특정 카메라를 선택합니다.
-  // final firstCamera = cameras.first; // 후면카메라
-  // 후면 카메라와 전면 카메라를 분리합니다.
+  // 사용 가능한 카메라 목록에서 후면 카메라와 전면 카메라를 선택합니다.
   final backCamera = cameras.firstWhere(
     (camera) => camera.lensDirection == CameraLensDirection.back,
     orElse: () => cameras.first,
@@ -47,7 +47,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       theme: ThemeData.dark(),
-      home: TakePictureScreen(
+      home: TakeVideoScreen(
         backCamera: backCamera,
         frontCamera: frontCamera,
       ),
@@ -55,9 +55,9 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// 주어진 카메라를 사용하여 사진을 찍을 수 있는 화면입니다.
-class TakePictureScreen extends StatefulWidget {
-  const TakePictureScreen({
+// 비디오 촬영을 위한 화면
+class TakeVideoScreen extends StatefulWidget {
+  const TakeVideoScreen({
     super.key,
     required this.backCamera,
     required this.frontCamera,
@@ -67,34 +67,37 @@ class TakePictureScreen extends StatefulWidget {
   final CameraDescription frontCamera;
 
   @override
-  TakePictureScreenState createState() => TakePictureScreenState();
+  TakeVideoScreenState createState() => TakeVideoScreenState();
 }
 
-class TakePictureScreenState extends State<TakePictureScreen> {
+class TakeVideoScreenState extends State<TakeVideoScreen> {
   late CameraController _controller; // 카메라 컨트롤러를 선언합니다.
   late Future<void> _initializeControllerFuture; // 컨트롤러 초기화 Future를 선언합니다.
-  bool isBackCamera = true; // 현재 사용 중인 카메라 방향을 추적 기본은 후면카메라
+  bool isBackCamera = true; // 현재 사용 중인 카메라 방향
+  bool isRecording = false; // 현재 녹화 상태
 
   @override
   void initState() {
+    // 맨처음 호출
     super.initState();
     _initializeCamera();
   }
 
-  // 기본으로 맨처음에 초기화되고 _switchCamera()여기에서 호출됨
+  // 카메라 초기화 메서드 _switchCamera()여기에서 호출됨
   void _initializeCamera() {
     final selectedCamera =
         isBackCamera ? widget.backCamera : widget.frontCamera;
 
     // 카메라의 현재 출력을 표시하기 위해 CameraController를 생성합니다.
     _controller = CameraController(
-      selectedCamera, // 사용 가능한 카메라 목록에서 특정 카메라를 가져옵니다.
-      ResolutionPreset.medium, // 사용할 해상도를 정의합니다.
+      selectedCamera, // 선택된 카메라
+      ResolutionPreset.medium, // 해상도 설정
+      enableAudio: true, // 오디오 녹음을 활성화
     );
 
-    // 다음으로, 컨트롤러를 초기화합니다. 이는 Future를 반환합니다.
-    _initializeControllerFuture = _controller.initialize();
-    setState(() {});
+    _initializeControllerFuture =
+        _controller.initialize(); // 컨트롤러 초기화 Future를 반환
+    setState(() {}); // 상태 업데이트
   }
 
   @override
@@ -106,92 +109,159 @@ class TakePictureScreenState extends State<TakePictureScreen> {
 
   void _switchCamera() {
     setState(() {
-      // 카메라를 바꾸면 dispose하고 다시 카메라 초기화
-      isBackCamera = !isBackCamera;
-      _controller.dispose();
-      _initializeCamera();
+      isBackCamera = !isBackCamera; // 카메라 방향 변경
+      _controller.dispose(); // 기존 컨트롤러 dispose
+      _initializeCamera(); // 새로운 카메라 초기화
     });
+  }
+
+  // 동영상 녹화 시작 메서드
+  Future<void> _startVideoRecording() async {
+    try {
+      await _initializeControllerFuture; // 컨트롤러 초기화 대기
+
+      // 최신 camera 패키지에서는 startVideoRecording()에 파일 경로를 전달하지 않음
+      // 비디오는 임시 경로에 저장되며, 녹화 종료 후 파일 경로를 받음
+      await _controller.startVideoRecording();
+
+      setState(() {
+        isRecording = true; // 녹화 상태 업데이트
+      });
+    } catch (e) {
+      print('비디오 녹화 시작 오류: $e');
+    }
+  }
+
+  // 동영상 녹화 중지 및 저장 메서드
+  Future<void> _stopVideoRecording() async {
+    try {
+      final XFile video =
+          await _controller.stopVideoRecording(); // 녹화 중지 및 파일 받기
+
+      setState(() {
+        isRecording = false; // 녹화 상태 업데이트
+      });
+
+      if (!context.mounted) return; // State가 마운트 되어 있는지 확인
+
+      // 녹화된 비디오를 재생할 화면으로 이동
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => DisplayVideoScreen(
+            videoPath: video.path, // 비디오 파일 경로 전달
+          ),
+        ),
+      );
+    } catch (e) {
+      print('비디오 녹화 중지 오류: $e');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          '사진 찍기',
-        ),
+        title: const Text('동영상 촬영'),
         actions: [
           IconButton(
-            onPressed: _switchCamera,
-            icon: const Icon(
-              Icons.switch_camera,
-            ),
+            onPressed: _switchCamera, // 카메라 전환 버튼
+            icon: const Icon(Icons.switch_camera),
           )
         ],
       ),
-      // 컨트롤러가 초기화될 때까지 기다린 후 카메라 미리보기를 표시해야 합니다.
-      // FutureBuilder를 사용하여 컨트롤러 초기화가 완료될 때까지 로딩 스피너를 표시합니다.
+      // 카메라 초기화가 완료될 때까지 로딩 인디케이터 표시
       body: FutureBuilder<void>(
         future: _initializeControllerFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.done) {
-            // Future가 완료되면 카메라 미리보기를 표시합니다.
+            // Future가 완료되면 카메라 미리보기를 표시
             return CameraPreview(_controller);
           } else {
-            // 그렇지 않으면 로딩 인디케이터를 표시합니다.
+            // 그렇지 않으면 로딩 인디케이터를 표시
             return const Center(child: CircularProgressIndicator());
           }
         },
       ),
       floatingActionButton: FloatingActionButton(
-        // onPressed 콜백을 제공합니다.
-        onPressed: () async {
-          // 사진을 찍는 과정을 try/catch 블록으로 감쌉니다. 오류가 발생하면 catch에서 처리합니다.
-          try {
-            // 카메라가 초기화되었는지 확인합니다.
-            await _initializeControllerFuture;
-
-            // 사진을 찍고 저장된 파일 `image`를 가져옵니다.
-            final image = await _controller.takePicture();
-
-            if (!context.mounted) return;
-
-            // 사진이 찍혔다면 새로운 화면에 표시합니다.
-            await Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (context) => DisplayPictureScreen(
-                  // 자동으로 생성된 경로를 DisplayPictureScreen 위젯에 전달합니다.
-                  imagePath: image.path,
-                ),
-              ),
-            );
-          } catch (e) {
-            // 오류가 발생하면 콘솔에 오류를 출력합니다.
-            print(e);
-          }
-        },
-        child: const Icon(Icons.camera_alt), // 카메라 아이콘을 표시합니다.
+        // 녹화 시작 및 중지를 위한 콜백
+        onPressed: isRecording ? _stopVideoRecording : _startVideoRecording,
+        backgroundColor: isRecording ? Colors.red : Colors.blue,
+        child: Icon(isRecording ? Icons.stop : Icons.videocam),
       ),
     );
   }
 }
 
-// 사용자가 찍은 사진을 표시하는 위젯입니다.
-class DisplayPictureScreen extends StatelessWidget {
-  final String imagePath; // 사진의 파일 경로를 저장합니다.
+// 녹화된 비디오를 표시하는 화면
+class DisplayVideoScreen extends StatefulWidget {
+  final String videoPath; // 비디오 파일 경로
 
-  const DisplayPictureScreen({
+  const DisplayVideoScreen({
     super.key,
-    required this.imagePath,
+    required this.videoPath,
   });
+
+  @override
+  DisplayVideoScreenState createState() => DisplayVideoScreenState();
+}
+
+class DisplayVideoScreenState extends State<DisplayVideoScreen> {
+  late VideoPlayerController _videoPlayerController; // 비디오 플레이어 컨트롤러
+  late Future<void> _initializeVideoPlayerFuture; // 비디오 플레이어 초기화 Future
+
+  @override
+  void initState() {
+    super.initState();
+    // 비디오 플레이어 컨트롤러 초기화
+    _videoPlayerController = VideoPlayerController.file(File(widget.videoPath));
+    _initializeVideoPlayerFuture =
+        _videoPlayerController.initialize().then((_) {
+      if (!mounted) return; // State가 마운트 되어 있는지 확인
+      setState(() {}); // 상태 업데이트
+      _videoPlayerController.play(); // 비디오 자동 재생
+    }).catchError((e) {
+      print('비디오 플레이어 초기화 오류: $e');
+    });
+  }
+
+  @override
+  void dispose() {
+    _videoPlayerController.dispose(); // 비디오 플레이어 컨트롤러 dispose
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('사진 표시')),
-      // 이미지는 기기에 파일로 저장됩니다. 주어진 경로를 사용하여 `Image.file` 생성자를
-      // 사용하여 이미지를 표시합니다.
-      body: Image.file(File(imagePath)),
+      appBar: AppBar(
+        title: const Text('녹화된 비디오'),
+      ),
+      body: Center(
+        child: FutureBuilder<void>(
+          future: _initializeVideoPlayerFuture, // 비디오 플레이어 초기화 Future 사용
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.done) {
+              // 비디오 재생 화면 표시
+              return AspectRatio(
+                aspectRatio: _videoPlayerController.value.aspectRatio,
+                child: VideoPlayer(_videoPlayerController),
+              );
+            } else if (snapshot.hasError) {
+              // 초기화 중 오류 발생 시 메시지 표시
+              return const Text('비디오를 로드할 수 없습니다.');
+            } else {
+              // 초기화 중 로딩 인디케이터 표시
+              return const CircularProgressIndicator();
+            }
+          },
+        ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Navigator.of(context).pop(); // 이전 화면으로 돌아감
+        },
+        child: const Icon(Icons.arrow_back),
+      ),
     );
   }
 }
