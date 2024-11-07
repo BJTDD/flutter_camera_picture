@@ -127,6 +127,11 @@ class TakeVideoScreenState extends State<TakeVideoScreen> {
       });
     } catch (e) {
       print('비디오 녹화 시작 오류: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('비디오 녹화 시작 중 오류가 발생했습니다: $e')),
+        );
+      }
     }
   }
 
@@ -152,6 +157,11 @@ class TakeVideoScreenState extends State<TakeVideoScreen> {
       );
     } catch (e) {
       print('비디오 녹화 중지 오류: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('비디오 녹화 중지 중 오류가 발생했습니다: $e')),
+        );
+      }
     }
   }
 
